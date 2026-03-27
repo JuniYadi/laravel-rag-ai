@@ -59,6 +59,8 @@
             </div>
         </form>
 
+        <x-social-login-divider testId="google-register-button" />
+
         <div class="space-x-1 rtl:space-x-reverse text-center text-sm text-zinc-600 dark:text-zinc-400">
             <span>{{ __('Already have an account?') }}</span>
             <flux:link :href="route('login')" wire:navigate>{{ __('Log in') }}</flux:link>
