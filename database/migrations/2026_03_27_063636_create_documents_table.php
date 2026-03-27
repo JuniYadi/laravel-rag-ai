@@ -11,7 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::ensureVectorExtensionExists();
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            Schema::ensureVectorExtensionExists();
+        }
 
         Schema::create('documents', function (Blueprint $table) {
             $table->id();
@@ -20,7 +22,11 @@ return new class extends Migration
             $table->string('file_type');
             $table->longText('content');
             $table->text('excerpt')->nullable();
-            $table->vector('embedding', dimensions: 1536)->nullable();
+            if (Schema::getConnection()->getDriverName() === 'pgsql') {
+                $table->vector('embedding', dimensions: 1536)->nullable();
+            } else {
+                $table->text('embedding')->nullable(); // JSON-encoded fallback for non-PostgreSQL
+            }
             $table->timestamps();
         });
     }
