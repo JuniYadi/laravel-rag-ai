@@ -35,4 +35,35 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Document Services Configuration
+    |--------------------------------------------------------------------------
+    */
+    'document' => [
+        'disk' => env('DOCUMENT_DISK', 'local'),
+        'storage_path' => env('DOCUMENT_STORAGE_PATH', 'documents'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Embedding Configuration
+    |--------------------------------------------------------------------------
+    */
+    'embedding' => [
+        'model' => 'text-embedding-3-small',
+        'dimensions' => 1536,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | LLM Configuration
+    |--------------------------------------------------------------------------
+    */
+    'llm' => [
+        'provider' => env('LLM_PROVIDER', 'openai'),
+        'model' => env('LLM_MODEL', 'gpt-4o-mini'),
+        'base_url' => env('LLM_BASE_URL', 'https://api.openai.com/v1'),
+    ],
+
 ];
