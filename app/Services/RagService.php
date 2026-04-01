@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 
 class RagService
 {
@@ -25,12 +26,33 @@ class RagService
     ) {
         $this->vectorSearchService = $vectorSearchService;
         $this->embeddingService = $embeddingService;
-        $this->llmProvider = config('services.llm.provider', 'openai');
-        $this->llmModel = config('services.llm.model', 'gpt-4o-mini');
-        $this->llmBaseUrl = config('services.llm.base_url', 'https://api.openai.com/v1');
-        $this->openaiApiKey = config('services.llm.provider') === 'openai'
-            ? config('services.openai.api_key', env('OPENAI_API_KEY'))
-            : env('OPENAI_API_KEY');
+
+        $this->llmProvider = mb_strtolower((string) config('services.llm.provider', 'openai'));
+        $this->llmModel = (string) config('services.llm.model', 'gpt-4o-mini');
+        $this->llmBaseUrl = rtrim((string) config('services.llm.base_url', 'https://api.openai.com/v1'), '/');
+
+        $this->openaiApiKey = $this->resolveOpenAiApiKey();
+
+        if ($this->llmModel === '') {
+            throw new RuntimeException('LLM model is not configured. Set services.llm.model / LLM_MODEL.');
+        }
+    }
+
+    protected function resolveOpenAiApiKey(): string
+    {
+        $primaryApiKey = (string) config('services.llm.api_key', '');
+
+        if ($primaryApiKey !== '') {
+            return $primaryApiKey;
+        }
+
+        $fallbackApiKey = (string) config('services.openai.api_key', env('OPENAI_API_KEY', ''));
+
+        if ($fallbackApiKey === '') {
+            throw new RuntimeException('Missing LLM API key. Set services.llm.api_key or OPENAI_API_KEY.');
+        }
+
+        return $fallbackApiKey;
     }
 
     /**
@@ -132,12 +154,10 @@ PROMPT;
      */
     protected function callLlm(string $systemPrompt, string $userPrompt): string
     {
-        if ($this->llmProvider === 'openai') {
-            return $this->callOpenAi($systemPrompt, $userPrompt);
-        }
-
-        // Fallback or other providers can be added here
-        return $this->callOpenAi($systemPrompt, $userPrompt);
+        return match ($this->llmProvider) {
+            'openai', 'openai-compatible' => $this->callOpenAi($systemPrompt, $userPrompt),
+            default => throw new RuntimeException("Unsupported LLM provider [{$this->llmProvider}]. Supported providers: openai, openai-compatible."),
+        };
     }
 
     /**
