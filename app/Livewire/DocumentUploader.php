@@ -2,10 +2,9 @@
 
 namespace App\Livewire;
 
+use App\Jobs\ProcessDocumentIngestion;
 use App\Models\Document;
 use App\Services\DocumentParserService;
-use App\Services\EmbeddingService;
-use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -27,14 +26,9 @@ class DocumentUploader extends Component
 
     protected DocumentParserService $parserService;
 
-    protected EmbeddingService $embeddingService;
-
-    public function boot(
-        DocumentParserService $parserService,
-        EmbeddingService $embeddingService
-    ) {
+    public function boot(DocumentParserService $parserService)
+    {
         $this->parserService = $parserService;
-        $this->embeddingService = $embeddingService;
     }
 
     public function mount()
@@ -64,22 +58,19 @@ class DocumentUploader extends Component
         try {
             $parsed = $this->parserService->parse($this->upload);
 
-            $this->statusMessage = 'Generating embedding...';
+            $document = Document::create([
+                'title' => $parsed['title'],
+                'file_path' => $parsed['file_path'],
+                'file_type' => $parsed['file_type'],
+                'content' => $parsed['content'],
+                'excerpt' => $parsed['excerpt'],
+                'status' => 'pending',
+                'error_message' => null,
+            ]);
 
-            $embedding = $this->embeddingService->generateEmbedding($parsed['content']);
+            ProcessDocumentIngestion::dispatch($document->id);
 
-            DB::transaction(function () use ($parsed, $embedding) {
-                Document::create([
-                    'title' => $parsed['title'],
-                    'file_path' => $parsed['file_path'],
-                    'file_type' => $parsed['file_type'],
-                    'content' => $parsed['content'],
-                    'excerpt' => $parsed['excerpt'],
-                    'embedding' => $embedding,
-                ]);
-            });
-
-            $this->statusMessage = 'Document uploaded successfully!';
+            $this->statusMessage = 'Upload accepted. Document is queued for processing.';
             $this->upload = null;
             $this->loadDocuments();
 
@@ -103,6 +94,8 @@ class DocumentUploader extends Component
                 'excerpt' => $doc->excerpt,
                 'created_at' => $doc->created_at->diffForHumans(),
                 'content_length' => mb_strlen($doc->content),
+                'status' => $doc->status,
+                'error_message' => $doc->error_message,
             ])
             ->toArray();
     }

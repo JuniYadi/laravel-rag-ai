@@ -16,12 +16,18 @@ class Document extends Model
         'content',
         'excerpt',
         'embedding',
+        'status',
+        'error_message',
+        'processing_started_at',
+        'completed_at',
     ];
 
     protected function casts(): array
     {
         return [
             'embedding' => 'array',
+            'processing_started_at' => 'datetime',
+            'completed_at' => 'datetime',
         ];
     }
 

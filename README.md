@@ -85,8 +85,11 @@ php artisan test --compact
 # Code formatting
 vendor/bin/pint --format agent
 
-# Run queue worker
-php artisan queue:listen
+# Run queue worker (default queue)
+php artisan queue:work
+
+# Run queue worker for document ingestion only
+php artisan queue:work --queue=documents
 
 # Start development server
 composer run dev
