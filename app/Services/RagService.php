@@ -71,9 +71,11 @@ class RagService
             'answer' => $answer,
             'sources' => $documents->map(fn ($doc) => [
                 'id' => $doc->id,
-                'title' => $doc->title,
+                'document_id' => $doc->document_id ?? $doc->id,
+                'title' => $doc->document->title ?? $doc->title,
                 'excerpt' => $doc->excerpt,
-                'file_type' => $doc->file_type,
+                'file_type' => $doc->document->file_type ?? $doc->file_type,
+                'chunk_index' => $doc->chunk_index ?? null,
             ]),
             'document_count' => $documents->count(),
         ];
@@ -111,7 +113,9 @@ class RagService
         $contextParts = [];
 
         foreach ($documents as $index => $document) {
-            $contextParts[] = '[Document '.($index + 1).": {$document->title}]\n{$document->content}";
+            $title = $document->document->title ?? $document->title;
+            $chunkSuffix = isset($document->chunk_index) ? ' / Chunk '.($document->chunk_index + 1) : '';
+            $contextParts[] = '[Document '.($index + 1).$chunkSuffix.": {$title}]\n{$document->content}";
         }
 
         return implode("\n\n---\n\n", $contextParts);

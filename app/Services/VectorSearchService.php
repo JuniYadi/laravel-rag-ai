@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Document;
+use App\Models\DocumentChunk;
 use Illuminate\Support\Collection;
 
 class VectorSearchService
@@ -15,7 +16,7 @@ class VectorSearchService
     }
 
     /**
-     * Search for similar documents using text query
+     * Search for similar content chunks using text query.
      */
     public function search(string $query, int $limit = 5, float $minSimilarity = 0.7): Collection
     {
@@ -25,24 +26,44 @@ class VectorSearchService
     }
 
     /**
-     * Search for similar documents using embedding vector
+     * Search for similar chunks using embedding vector.
+     * Falls back to document-level vectors when chunks are not present.
      */
     public function searchByEmbedding(array $embedding, int $limit = 5, float $minSimilarity = 0.7): Collection
     {
-        return Document::query()
+        $chunks = DocumentChunk::query()
+            ->with('document')
             ->whereVectorSimilarTo('embedding', $embedding, minSimilarity: $minSimilarity)
             ->limit($limit)
             ->get();
+
+        if ($chunks->count() >= $limit) {
+            return $chunks;
+        }
+
+        $remaining = $limit - $chunks->count();
+        $alreadyIncludedDocumentIds = $chunks->pluck('document_id')->filter()->all();
+
+        $fallbackDocuments = Document::query()
+            ->whereNotNull('embedding')
+            ->when(! empty($alreadyIncludedDocumentIds), fn ($q) => $q->whereNotIn('id', $alreadyIncludedDocumentIds))
+            ->whereVectorSimilarTo('embedding', $embedding, minSimilarity: $minSimilarity)
+            ->limit($remaining)
+            ->get()
+            ->map(fn (Document $document, int $index) => $this->fromDocumentFallback($document, $index));
+
+        return $chunks->concat($fallbackDocuments)->values();
     }
 
     /**
-     * Search with distance calculation
+     * Search with distance calculation.
      */
     public function searchWithDistance(string $query, int $limit = 5, float $maxDistance = 0.3): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
 
-        return Document::query()
+        return DocumentChunk::query()
+            ->with('document')
             ->select('*')
             ->selectVectorDistance('embedding', $queryEmbedding, as: 'distance')
             ->whereVectorDistanceLessThan('embedding', $queryEmbedding, maxDistance: $maxDistance)
@@ -52,13 +73,14 @@ class VectorSearchService
     }
 
     /**
-     * Get most similar documents ordered by similarity
+     * Get most similar chunks ordered by similarity.
      */
     public function getMostSimilar(string $query, int $limit = 10): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
 
-        return Document::query()
+        return DocumentChunk::query()
+            ->with('document')
             ->select('*')
             ->selectVectorDistance('embedding', $queryEmbedding, as: 'distance')
             ->whereNotNull('embedding')
@@ -68,7 +90,7 @@ class VectorSearchService
     }
 
     /**
-     * Find document by ID with similarity to query
+     * Find document by ID with similarity to query.
      */
     public function findWithSimilarity(int $documentId, string $query): ?array
     {
@@ -91,26 +113,45 @@ class VectorSearchService
     }
 
     /**
-     * Calculate similarity score between query and stored documents
+     * Calculate similarity score between query and stored chunks.
      */
     public function calculateSimilarities(string $query): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
 
-        return Document::query()
+        return DocumentChunk::query()
+            ->with('document')
             ->whereNotNull('embedding')
             ->get()
-            ->map(function ($document) use ($queryEmbedding) {
+            ->map(function ($chunk) use ($queryEmbedding) {
                 $similarity = $this->embeddingService->cosineSimilarity(
-                    $document->embedding,
+                    $chunk->embedding,
                     $queryEmbedding
                 );
 
                 return [
-                    'document' => $document,
+                    'document' => $chunk,
                     'similarity' => $similarity,
                 ];
             })
             ->sortByDesc('similarity');
+    }
+
+    protected function fromDocumentFallback(Document $document, int $index): DocumentChunk
+    {
+        $chunk = new DocumentChunk([
+            'document_id' => $document->id,
+            'chunk_index' => $index,
+            'content' => $document->content,
+            'excerpt' => $document->excerpt,
+            'embedding' => $document->embedding,
+            'char_count' => mb_strlen($document->content),
+            'token_count' => max(1, (int) ceil(mb_strlen($document->content) / 4)),
+            'metadata' => ['source' => 'document_fallback'],
+        ]);
+
+        $chunk->setRelation('document', $document);
+
+        return $chunk;
     }
 }
