@@ -70,6 +70,7 @@ return [
         'provider' => env('LLM_PROVIDER', 'openai'),
         'model' => env('LLM_MODEL', 'gpt-4o-mini'),
         'base_url' => env('LLM_BASE_URL', 'https://api.openai.com/v1'),
+        'api_key' => env('LLM_API_KEY', env('OPENAI_API_KEY')),
     ],
 
 ];
