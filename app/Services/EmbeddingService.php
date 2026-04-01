@@ -55,6 +55,29 @@ class EmbeddingService
     }
 
     /**
+     * Average multiple embeddings into a single centroid vector.
+     */
+    public function averageEmbeddings(array $embeddings): array
+    {
+        if (empty($embeddings)) {
+            return [];
+        }
+
+        $dimensions = count($embeddings[0]);
+        $totals = array_fill(0, $dimensions, 0.0);
+
+        foreach ($embeddings as $embedding) {
+            for ($i = 0; $i < $dimensions; $i++) {
+                $totals[$i] += (float) ($embedding[$i] ?? 0.0);
+            }
+        }
+
+        $count = count($embeddings);
+
+        return array_map(fn (float $value) => $value / $count, $totals);
+    }
+
+    /**
      * Calculate cosine similarity between two vectors
      */
     public function cosineSimilarity(array $vectorA, array $vectorB): float

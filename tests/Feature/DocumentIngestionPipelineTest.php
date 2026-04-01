@@ -3,6 +3,8 @@
 use App\Jobs\ProcessDocumentIngestion;
 use App\Livewire\DocumentUploader;
 use App\Models\Document;
+use App\Models\DocumentChunk;
+use App\Services\DocumentChunkingService;
 use App\Services\DocumentParserService;
 use App\Services\EmbeddingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -62,13 +64,31 @@ test('ingestion job marks document completed when embedding succeeds', function 
     ]);
 
     $embeddingMock = Mockery::mock(EmbeddingService::class);
-    $embeddingMock->shouldReceive('generateEmbedding')
+    $embeddingMock->shouldReceive('generateEmbeddings')
         ->once()
-        ->with('content')
+        ->with(['content'])
+        ->andReturn([[0.11, 0.22, 0.33]]);
+    $embeddingMock->shouldReceive('averageEmbeddings')
+        ->once()
         ->andReturn([0.11, 0.22, 0.33]);
 
+    $chunkingMock = Mockery::mock(DocumentChunkingService::class);
+    $chunkingMock->shouldReceive('chunk')
+        ->once()
+        ->with('content')
+        ->andReturn([
+            [
+                'chunk_index' => 0,
+                'content' => 'content',
+                'excerpt' => 'content',
+                'char_count' => 7,
+                'token_count' => 2,
+                'metadata' => ['chunk_size' => 1200, 'chunk_overlap' => 200],
+            ],
+        ]);
+
     $job = new ProcessDocumentIngestion($document->id);
-    $job->handle($embeddingMock);
+    $job->handle($embeddingMock, $chunkingMock);
 
     $document->refresh();
 
@@ -76,6 +96,14 @@ test('ingestion job marks document completed when embedding succeeds', function 
         ->and($document->embedding)->toBe([0.11, 0.22, 0.33])
         ->and($document->completed_at)->not->toBeNull()
         ->and($document->error_message)->toBeNull();
+
+    $storedChunk = DocumentChunk::query()->first();
+
+    expect($storedChunk)->not->toBeNull()
+        ->and($storedChunk->document_id)->toBe($document->id)
+        ->and($storedChunk->chunk_index)->toBe(0)
+        ->and($storedChunk->content)->toBe('content')
+        ->and($storedChunk->embedding)->toBe([0.11, 0.22, 0.33]);
 });
 
 test('ingestion job marks document failed on final retry failure', function () {
@@ -89,18 +117,33 @@ test('ingestion job marks document failed on final retry failure', function () {
     ]);
 
     $embeddingMock = Mockery::mock(EmbeddingService::class);
-    $embeddingMock->shouldReceive('generateEmbedding')
+    $embeddingMock->shouldReceive('generateEmbeddings')
         ->once()
         ->andThrow(new RuntimeException('Embedding API timeout'));
 
+    $chunkingMock = Mockery::mock(DocumentChunkingService::class);
+    $chunkingMock->shouldReceive('chunk')
+        ->once()
+        ->andReturn([
+            [
+                'chunk_index' => 0,
+                'content' => 'content',
+                'excerpt' => 'content',
+                'char_count' => 7,
+                'token_count' => 2,
+                'metadata' => ['chunk_size' => 1200, 'chunk_overlap' => 200],
+            ],
+        ]);
+
     $job = new ProcessDocumentIngestion($document->id);
     $job->tries = 1;
-    $job->handle($embeddingMock);
+    $job->handle($embeddingMock, $chunkingMock);
 
     $document->refresh();
 
     expect($document->status)->toBe('failed')
-        ->and($document->error_message)->toContain('Embedding API timeout');
+        ->and($document->error_message)->toContain('Embedding API timeout')
+        ->and(DocumentChunk::query()->count())->toBe(0);
 });
 
 afterEach(function (): void {

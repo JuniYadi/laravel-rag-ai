@@ -40,6 +40,8 @@ Copy `.env.example` to `.env` and configure:
 | `LLM_BASE_URL` | LLM API base URL | `https://api.openai.com/v1` |
 | `DOCUMENT_DISK` | Storage disk for documents | `local` |
 | `DOCUMENT_STORAGE_PATH` | Path within disk | `documents` |
+| `DOCUMENT_CHUNK_SIZE` | Target chars per chunk during ingestion | `1200` |
+| `DOCUMENT_CHUNK_OVERLAP` | Overlap chars between neighboring chunks | `200` |
 
 ### Google OAuth (Optional)
 

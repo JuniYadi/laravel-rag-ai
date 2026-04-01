@@ -4,31 +4,28 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class Document extends Model
+class DocumentChunk extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'title',
-        'file_path',
-        'file_type',
+        'document_id',
+        'chunk_index',
         'content',
         'excerpt',
         'embedding',
-        'status',
-        'error_message',
-        'processing_started_at',
-        'completed_at',
+        'char_count',
+        'token_count',
+        'metadata',
     ];
 
     protected function casts(): array
     {
         return [
             'embedding' => 'array',
-            'processing_started_at' => 'datetime',
-            'completed_at' => 'datetime',
+            'metadata' => 'array',
         ];
     }
 
@@ -41,8 +38,8 @@ class Document extends Model
         return $value;
     }
 
-    public function chunks(): HasMany
+    public function document(): BelongsTo
     {
-        return $this->hasMany(DocumentChunk::class);
+        return $this->belongsTo(Document::class);
     }
 }
