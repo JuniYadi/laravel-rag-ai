@@ -48,6 +48,20 @@
                             <p class="text-sm text-neutral-500 dark:text-neutral-400">
                                 {{ strtoupper($doc['file_type']) }} • {{ $doc['content_length'] }} chars • {{ $doc['created_at'] }}
                             </p>
+                            <div class="mt-1 text-xs">
+                                @if($doc['status'] === 'completed')
+                                    <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-green-700 dark:bg-green-900/30 dark:text-green-300">Completed</span>
+                                @elseif($doc['status'] === 'processing')
+                                    <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">Processing</span>
+                                @elseif($doc['status'] === 'pending')
+                                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Pending</span>
+                                @else
+                                    <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-red-700 dark:bg-red-900/30 dark:text-red-300">Failed</span>
+                                @endif
+                                @if(!empty($doc['error_message']))
+                                    <p class="mt-1 text-red-600 dark:text-red-400">{{ $doc['error_message'] }}</p>
+                                @endif
+                            </div>
                         </div>
                     </div>
                     <flux:button
@@ -75,7 +89,7 @@
             Are you sure you want to delete "{{ $documentToDelete?->title }}"? This action cannot be undone.
         </p>
         <div class="mt-6 flex justify-end gap-3">
-            <flux:button wire:click="cancelDelete" variant="secondary">
+            <flux:button wire:click="cancelDelete" variant="outline">
                 Cancel
             </flux:button>
             <flux:button wire:click="deleteDocument" variant="danger">

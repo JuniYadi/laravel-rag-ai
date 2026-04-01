@@ -49,6 +49,7 @@ return [
     'document' => [
         'disk' => env('DOCUMENT_DISK', 'local'),
         'storage_path' => env('DOCUMENT_STORAGE_PATH', 'documents'),
+        'queue' => env('DOCUMENT_INGESTION_QUEUE', 'documents'),
     ],
 
     /*
