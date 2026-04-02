@@ -76,4 +76,17 @@ return [
         'api_key' => env('LLM_API_KEY', env('OPENAI_API_KEY')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | RAG Retrieval Configuration
+    |--------------------------------------------------------------------------
+    */
+    'rag' => [
+        'max_chunks' => (int) env('RAG_MAX_CHUNKS', 5),
+        'max_context_chars' => (int) env('RAG_MAX_CONTEXT_CHARS', 12000),
+        'max_context_tokens' => (int) env('RAG_MAX_CONTEXT_TOKENS', 3000),
+        'min_similarity' => (float) env('RAG_MIN_SIMILARITY', 0.7),
+        'low_confidence_similarity' => (float) env('RAG_LOW_CONFIDENCE_SIMILARITY', 0.55),
+    ],
+
 ];
