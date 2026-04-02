@@ -4,7 +4,10 @@ namespace App\Services;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class RagService
 {
@@ -30,6 +33,17 @@ class RagService
 
     protected float $lowConfidenceSimilarity;
 
+    protected int $retryAttempts;
+
+    /**
+     * @var array<int>
+     */
+    protected array $retryBackoffMs;
+
+    protected float $estimatedInputCostPerMillionTokens;
+
+    protected float $estimatedOutputCostPerMillionTokens;
+
     public function __construct(
         VectorSearchService $vectorSearchService,
         EmbeddingService $embeddingService
@@ -44,9 +58,18 @@ class RagService
 
         $this->maxChunks = max(1, (int) config('services.rag.max_chunks', 5));
         $this->maxContextChars = max(500, (int) config('services.rag.max_context_chars', 12000));
-        $this->maxContextTokens = max(128, (int) config('services.rag.max_context_tokens', 3000));
+        $this->maxContextTokens = max(200, (int) config('services.rag.max_context_tokens', 3000));
         $this->minSimilarity = max(0.0, min(1.0, (float) config('services.rag.min_similarity', 0.7)));
         $this->lowConfidenceSimilarity = max(0.0, min(1.0, (float) config('services.rag.low_confidence_similarity', 0.55)));
+
+        $this->retryAttempts = max(1, (int) config('services.rag.retry.attempts', 3));
+        $configuredBackoff = config('services.rag.retry.backoff_ms', [200, 600, 1500]);
+        $this->retryBackoffMs = is_array($configuredBackoff)
+            ? array_values(array_map(fn ($value) => max(0, (int) $value), $configuredBackoff))
+            : [200, 600, 1500];
+
+        $this->estimatedInputCostPerMillionTokens = max(0.0, (float) config('services.rag.cost.input_per_1m_tokens', 0.15));
+        $this->estimatedOutputCostPerMillionTokens = max(0.0, (float) config('services.rag.cost.output_per_1m_tokens', 0.60));
 
         if ($this->llmModel === '') {
             throw new RuntimeException('LLM model is not configured. Set services.llm.model / LLM_MODEL.');
@@ -75,55 +98,160 @@ class RagService
      */
     public function query(string $question, int $maxDocuments = 5): array
     {
-        $documents = $this->retrieveDocuments($question, $maxDocuments, $this->currentUserId());
+        $requestId = (string) Str::uuid();
+        $queryStartedAt = microtime(true);
 
-        $topSimilarity = (float) ($documents->max(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
-        $isLowConfidence = $documents->isNotEmpty() && $topSimilarity < $this->lowConfidenceSimilarity;
+        Log::info('rag.query.started', [
+            'request_id' => $requestId,
+            'question_length' => mb_strlen($question),
+            'max_documents' => $maxDocuments,
+            'user_id' => $this->currentUserId(),
+        ]);
 
-        $answer = $this->generateAnswer($question, $documents, $isLowConfidence);
+        try {
+            $retrievalStartedAt = microtime(true);
+            $documents = $this->retrieveDocuments($question, $maxDocuments, $this->currentUserId(), $requestId);
+            $retrievalLatencyMs = (int) round((microtime(true) - $retrievalStartedAt) * 1000);
 
-        return [
-            'question' => $question,
-            'answer' => $answer,
-            'sources' => $documents->values()->map(function ($doc, int $index) {
-                $sourceRef = 'S'.($index + 1);
+            $topSimilarity = (float) ($documents->max(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
+            $avgSimilarity = (float) ($documents->avg(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
+            $minSimilarity = (float) ($documents->min(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
+            $isLowConfidence = $documents->isNotEmpty() && $topSimilarity < $this->lowConfidenceSimilarity;
 
-                return [
-                    'id' => $doc->id,
-                    'source_ref' => $sourceRef,
-                    'document_id' => $doc->document_id ?? $doc->id,
-                    'title' => $doc->document->title ?? $doc->title,
-                    'excerpt' => $doc->excerpt,
-                    'file_type' => $doc->document->file_type ?? $doc->file_type,
-                    'chunk_index' => $doc->chunk_index ?? null,
-                    'similarity' => round((float) ($doc->rag_similarity ?? 0.0), 4),
-                    'char_count' => (int) ($doc->char_count ?? mb_strlen((string) ($doc->content ?? ''))),
-                    'token_count' => (int) ($doc->token_count ?? $this->estimateTokenCount((string) ($doc->content ?? ''))),
-                    'truncated' => (bool) ($doc->rag_truncated ?? false),
-                ];
-            }),
-            'document_count' => $documents->count(),
-            'retrieval' => [
-                'top_similarity' => round($topSimilarity, 4),
-                'is_low_confidence' => $isLowConfidence,
-                'used_chunks' => $documents->count(),
-                'budget' => [
-                    'max_chunks' => $this->maxChunks,
-                    'max_context_chars' => $this->maxContextChars,
-                    'max_context_tokens' => $this->maxContextTokens,
-                    'min_similarity' => $this->minSimilarity,
-                    'low_confidence_similarity' => $this->lowConfidenceSimilarity,
+            $generationStartedAt = microtime(true);
+            $generated = $this->generateAnswer($question, $documents, $isLowConfidence, $requestId);
+            $generationLatencyMs = (int) round((microtime(true) - $generationStartedAt) * 1000);
+
+            $estimatedPromptTokens = max(1, $this->estimateTokenCount($question) + (int) $documents->sum(fn ($doc) => (int) ($doc->token_count ?? 0)));
+            $estimatedCompletionTokens = max(1, $this->estimateTokenCount($generated['answer']));
+            $tokenUsage = $generated['token_usage'];
+
+            $inputTokens = (int) ($tokenUsage['prompt_tokens'] ?? $estimatedPromptTokens);
+            $outputTokens = (int) ($tokenUsage['completion_tokens'] ?? $estimatedCompletionTokens);
+            $estimatedCostUsd = $this->estimateCostUsd($inputTokens, $outputTokens);
+
+            $metrics = [
+                'latency_ms' => [
+                    'total' => (int) round((microtime(true) - $queryStartedAt) * 1000),
+                    'retrieve' => $retrievalLatencyMs,
+                    'generate' => $generationLatencyMs,
                 ],
-            ],
-        ];
+                'retrieval' => [
+                    'documents_retrieved' => $documents->pluck('document_id')->filter()->unique()->count(),
+                    'chunks_used' => $documents->count(),
+                    'top_similarity' => round($topSimilarity, 4),
+                    'avg_similarity' => round($avgSimilarity, 4),
+                    'min_similarity' => round($minSimilarity, 4),
+                    'is_low_confidence' => $isLowConfidence,
+                ],
+                'token_usage' => [
+                    'prompt_tokens' => $inputTokens,
+                    'completion_tokens' => $outputTokens,
+                    'total_tokens' => $inputTokens + $outputTokens,
+                    'estimated_prompt_tokens' => $estimatedPromptTokens,
+                    'estimated_completion_tokens' => $estimatedCompletionTokens,
+                ],
+                'cost' => [
+                    'currency' => 'USD',
+                    'estimated_total' => $estimatedCostUsd,
+                    'input_rate_per_1m_tokens' => $this->estimatedInputCostPerMillionTokens,
+                    'output_rate_per_1m_tokens' => $this->estimatedOutputCostPerMillionTokens,
+                ],
+            ];
+
+            Log::info('rag.query.completed', [
+                'request_id' => $requestId,
+                'metrics' => $metrics,
+            ]);
+
+            if ($documents->isEmpty()) {
+                Log::warning('rag.alert.no_context', [
+                    'request_id' => $requestId,
+                    'alertable' => true,
+                    'signal' => 'NO_CONTEXT_CHUNKS',
+                    'hint' => 'No chunks passed similarity threshold; consider ingesting more relevant documents or lowering min_similarity.',
+                ]);
+            }
+
+            if ($isLowConfidence) {
+                Log::warning('rag.alert.low_confidence', [
+                    'request_id' => $requestId,
+                    'alertable' => true,
+                    'signal' => 'LOW_CONFIDENCE_RETRIEVAL',
+                    'top_similarity' => round($topSimilarity, 4),
+                    'threshold' => $this->lowConfidenceSimilarity,
+                    'hint' => 'Top retrieval similarity is below low-confidence threshold. Review chunk quality and embedding model suitability.',
+                ]);
+            }
+
+            return [
+                'request_id' => $requestId,
+                'question' => $question,
+                'answer' => $generated['answer'],
+                'sources' => $documents->values()->map(function ($doc, int $index) {
+                    $sourceRef = 'S'.($index + 1);
+
+                    return [
+                        'id' => $doc->id,
+                        'source_ref' => $sourceRef,
+                        'document_id' => $doc->document_id ?? $doc->id,
+                        'title' => $doc->document->title ?? $doc->title,
+                        'excerpt' => $doc->excerpt,
+                        'file_type' => $doc->document->file_type ?? $doc->file_type,
+                        'chunk_index' => $doc->chunk_index ?? null,
+                        'similarity' => round((float) ($doc->rag_similarity ?? 0.0), 4),
+                        'char_count' => (int) ($doc->char_count ?? mb_strlen((string) ($doc->content ?? ''))),
+                        'token_count' => (int) ($doc->token_count ?? $this->estimateTokenCount((string) ($doc->content ?? ''))),
+                        'truncated' => (bool) ($doc->rag_truncated ?? false),
+                    ];
+                }),
+                'document_count' => $documents->count(),
+                'retrieval' => [
+                    'top_similarity' => round($topSimilarity, 4),
+                    'is_low_confidence' => $isLowConfidence,
+                    'used_chunks' => $documents->count(),
+                    'budget' => [
+                        'max_chunks' => $this->maxChunks,
+                        'max_context_chars' => $this->maxContextChars,
+                        'max_context_tokens' => $this->maxContextTokens,
+                        'min_similarity' => $this->minSimilarity,
+                        'low_confidence_similarity' => $this->lowConfidenceSimilarity,
+                    ],
+                ],
+                'metrics' => $metrics,
+            ];
+        } catch (Throwable $exception) {
+            Log::error('rag.query.failed', [
+                'request_id' => $requestId,
+                'alertable' => true,
+                'signal' => 'RAG_QUERY_FAILED',
+                'error' => $exception->getMessage(),
+                'hint' => 'Check embedding and LLM provider availability, API keys, and retry configuration.',
+            ]);
+
+            throw $exception;
+        }
     }
 
     /**
      * Retrieve relevant chunks for the query with confidence filtering and prompt budgeting.
      */
-    public function retrieveDocuments(string $query, int $limit = 5, ?int $userId = null): Collection
+    public function retrieveDocuments(string $query, int $limit = 5, ?int $userId = null, ?string $requestId = null): Collection
     {
-        $queryEmbedding = $this->embeddingService->generateEmbedding($query);
+        $resolvedRequestId = $requestId ?? (string) Str::uuid();
+
+        Log::info('rag.retrieve.started', [
+            'request_id' => $resolvedRequestId,
+            'limit' => $limit,
+            'user_id' => $userId,
+        ]);
+
+        $queryEmbedding = $this->executeWithRetry(
+            phase: 'retrieve_embedding',
+            requestId: $resolvedRequestId,
+            operation: fn () => $this->embeddingService->generateEmbedding($query)
+        );
+
         $effectiveLimit = max(1, min($limit, $this->maxChunks));
         $candidateLimit = max($effectiveLimit * 3, $effectiveLimit);
         $resolvedUserId = $userId ?? $this->currentUserId();
@@ -141,23 +269,41 @@ class RagService
             ->sortByDesc(fn ($chunk) => (float) ($chunk->rag_similarity ?? 0.0))
             ->values();
 
-        return $this->applyContextBudget($scored, $effectiveLimit);
+        $budgeted = $this->applyContextBudget($scored, $effectiveLimit);
+
+        Log::info('rag.retrieve.completed', [
+            'request_id' => $resolvedRequestId,
+            'candidate_count' => $candidates->count(),
+            'filtered_count' => $scored->count(),
+            'selected_count' => $budgeted->count(),
+        ]);
+
+        return $budgeted;
     }
 
     /**
      * Generate answer using LLM with retrieved context.
+     *
+     * @return array{answer:string, token_usage:array<string,int|null>}
      */
-    protected function generateAnswer(string $question, Collection $documents, bool $isLowConfidence = false): string
+    protected function generateAnswer(string $question, Collection $documents, bool $isLowConfidence = false, ?string $requestId = null): array
     {
         if ($documents->isEmpty()) {
-            return "I don't have any relevant document chunks to answer your question. Please upload documents that cover this topic first.";
+            return [
+                'answer' => "I don't have any relevant document chunks to answer your question. Please upload documents that cover this topic first.",
+                'token_usage' => [
+                    'prompt_tokens' => null,
+                    'completion_tokens' => null,
+                    'total_tokens' => null,
+                ],
+            ];
         }
 
         $context = $this->buildContext($documents);
         $systemPrompt = $this->buildSystemPrompt();
         $userPrompt = $this->buildUserPrompt($question, $context, $isLowConfidence);
 
-        return $this->callLlm($systemPrompt, $userPrompt);
+        return $this->callLlm($systemPrompt, $userPrompt, $requestId);
     }
 
     /**
@@ -218,42 +364,61 @@ PROMPT;
 
     /**
      * Call LLM API.
+     *
+     * @return array{answer:string, token_usage:array<string,int|null>}
      */
-    protected function callLlm(string $systemPrompt, string $userPrompt): string
+    protected function callLlm(string $systemPrompt, string $userPrompt, ?string $requestId = null): array
     {
         return match ($this->llmProvider) {
-            'openai', 'openai-compatible' => $this->callOpenAi($systemPrompt, $userPrompt),
+            'openai', 'openai-compatible' => $this->callOpenAi($systemPrompt, $userPrompt, $requestId),
             default => throw new RuntimeException("Unsupported LLM provider [{$this->llmProvider}]. Supported providers: openai, openai-compatible."),
         };
     }
 
     /**
      * Call OpenAI API.
+     *
+     * @return array{answer:string, token_usage:array<string,int|null>}
      */
-    protected function callOpenAi(string $systemPrompt, string $userPrompt): string
+    protected function callOpenAi(string $systemPrompt, string $userPrompt, ?string $requestId = null): array
     {
-        $response = Http::timeout(60)
-            ->withHeaders([
-                'Authorization' => 'Bearer '.$this->openaiApiKey,
-                'Content-Type' => 'application/json',
-            ])
-            ->post($this->llmBaseUrl.'/chat/completions', [
-                'model' => $this->llmModel,
-                'messages' => [
-                    ['role' => 'system', 'content' => $systemPrompt],
-                    ['role' => 'user', 'content' => $userPrompt],
-                ],
-                'temperature' => 0.7,
-                'max_tokens' => 1000,
-            ]);
+        $resolvedRequestId = $requestId ?? (string) Str::uuid();
 
-        if ($response->failed()) {
-            throw new RuntimeException('LLM API call failed: '.$response->body());
-        }
+        $data = $this->executeWithRetry(
+            phase: 'llm_generate',
+            requestId: $resolvedRequestId,
+            operation: function () use ($systemPrompt, $userPrompt): array {
+                $response = Http::timeout(60)
+                    ->withHeaders([
+                        'Authorization' => 'Bearer '.$this->openaiApiKey,
+                        'Content-Type' => 'application/json',
+                    ])
+                    ->post($this->llmBaseUrl.'/chat/completions', [
+                        'model' => $this->llmModel,
+                        'messages' => [
+                            ['role' => 'system', 'content' => $systemPrompt],
+                            ['role' => 'user', 'content' => $userPrompt],
+                        ],
+                        'temperature' => 0.2,
+                        'max_tokens' => 1000,
+                    ]);
 
-        $data = $response->json();
+                if ($response->failed()) {
+                    throw new RuntimeException('LLM API request failed with HTTP '.$response->status().'. Verify API key, provider URL, and model availability.');
+                }
 
-        return $data['choices'][0]['message']['content'] ?? '';
+                return $response->json();
+            }
+        );
+
+        return [
+            'answer' => (string) ($data['choices'][0]['message']['content'] ?? ''),
+            'token_usage' => [
+                'prompt_tokens' => isset($data['usage']['prompt_tokens']) ? (int) $data['usage']['prompt_tokens'] : null,
+                'completion_tokens' => isset($data['usage']['completion_tokens']) ? (int) $data['usage']['completion_tokens'] : null,
+                'total_tokens' => isset($data['usage']['total_tokens']) ? (int) $data['usage']['total_tokens'] : null,
+            ],
+        ];
     }
 
     /**
@@ -261,12 +426,14 @@ PROMPT;
      */
     public function queryWithStream(string $question, int $maxDocuments = 5): array
     {
-        $documents = $this->retrieveDocuments($question, $maxDocuments, $this->currentUserId());
+        $requestId = (string) Str::uuid();
+        $documents = $this->retrieveDocuments($question, $maxDocuments, $this->currentUserId(), $requestId);
         $context = $this->buildContext($documents);
         $topSimilarity = (float) ($documents->max(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
         $isLowConfidence = $documents->isNotEmpty() && $topSimilarity < $this->lowConfidenceSimilarity;
 
         return [
+            'request_id' => $requestId,
             'question' => $question,
             'documents' => $documents,
             'context' => $context,
@@ -408,6 +575,74 @@ PROMPT;
     protected function estimateTokenCount(string $text): int
     {
         return max(1, (int) ceil(mb_strlen($text) / 4));
+    }
+
+    protected function estimateCostUsd(int $inputTokens, int $outputTokens): float
+    {
+        $inputCost = ($inputTokens / 1_000_000) * $this->estimatedInputCostPerMillionTokens;
+        $outputCost = ($outputTokens / 1_000_000) * $this->estimatedOutputCostPerMillionTokens;
+
+        return round($inputCost + $outputCost, 6);
+    }
+
+    /**
+     * @template T
+     *
+     * @param  callable():T  $operation
+     * @return T
+     */
+    protected function executeWithRetry(string $phase, string $requestId, callable $operation): mixed
+    {
+        $attempt = 0;
+        $lastException = null;
+
+        while ($attempt < $this->retryAttempts) {
+            $attempt++;
+            $phaseStartedAt = microtime(true);
+
+            try {
+                $result = $operation();
+
+                Log::info('rag.phase.completed', [
+                    'request_id' => $requestId,
+                    'phase' => $phase,
+                    'attempt' => $attempt,
+                    'latency_ms' => (int) round((microtime(true) - $phaseStartedAt) * 1000),
+                ]);
+
+                return $result;
+            } catch (Throwable $exception) {
+                $lastException = $exception;
+
+                Log::warning('rag.phase.retry', [
+                    'request_id' => $requestId,
+                    'phase' => $phase,
+                    'attempt' => $attempt,
+                    'max_attempts' => $this->retryAttempts,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                if ($attempt >= $this->retryAttempts) {
+                    break;
+                }
+
+                $backoffMs = $this->retryBackoffMs[$attempt - 1] ?? end($this->retryBackoffMs) ?: 0;
+
+                if ($backoffMs > 0) {
+                    usleep($backoffMs * 1000);
+                }
+            }
+        }
+
+        throw new RuntimeException(
+            sprintf(
+                'RAG phase [%s] failed after %d attempt(s). Check provider health, credentials, and retry settings. Last error: %s',
+                $phase,
+                $this->retryAttempts,
+                $lastException?->getMessage() ?? 'unknown error'
+            ),
+            previous: $lastException
+        );
     }
 
     protected function currentUserId(): ?int

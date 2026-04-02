@@ -9,11 +9,9 @@ uses(TestCase::class);
 
 function makeRagServiceForConfigTests(): RagService
 {
-    return new class(
-        Mockery::mock(VectorSearchService::class),
-        Mockery::mock(EmbeddingService::class)
-    ) extends RagService {
-        public function callLlmPublic(string $systemPrompt, string $userPrompt): string
+    return new class(Mockery::mock(VectorSearchService::class), Mockery::mock(EmbeddingService::class)) extends RagService
+    {
+        public function callLlmPublic(string $systemPrompt, string $userPrompt): array
         {
             return $this->callLlm($systemPrompt, $userPrompt);
         }
@@ -80,4 +78,18 @@ test('unsupported provider throws actionable exception', function () {
 
     expect(fn () => $service->callLlmPublic('system', 'user'))
         ->toThrow(RuntimeException::class, 'Unsupported LLM provider [anthropic]. Supported providers: openai, openai-compatible.');
+});
+
+test('constructor resolves retry configuration from services.rag.retry config', function () {
+    config()->set('services.llm.provider', 'openai');
+    config()->set('services.llm.model', 'gpt-4o-mini');
+    config()->set('services.llm.base_url', 'https://api.openai.com/v1');
+    config()->set('services.llm.api_key', 'test-key');
+    config()->set('services.rag.retry.attempts', 4);
+    config()->set('services.rag.retry.backoff_ms', [100, 250, 500, 1000]);
+
+    $service = makeRagServiceForConfigTests();
+
+    expect(ragServiceProperty($service, 'retryAttempts'))->toBe(4)
+        ->and(ragServiceProperty($service, 'retryBackoffMs'))->toBe([100, 250, 500, 1000]);
 });

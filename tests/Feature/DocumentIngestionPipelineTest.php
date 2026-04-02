@@ -4,6 +4,7 @@ use App\Jobs\ProcessDocumentIngestion;
 use App\Livewire\DocumentUploader;
 use App\Models\Document;
 use App\Models\DocumentChunk;
+use App\Models\User;
 use App\Services\DocumentChunkingService;
 use App\Services\DocumentParserService;
 use App\Services\EmbeddingService;
@@ -11,17 +12,18 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
+
 uses(RefreshDatabase::class);
 
 test('upload request dispatches async ingestion job and returns quickly', function () {
     Queue::fake();
 
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
     $this->actingAs($user);
 
     $uploadedFile = UploadedFile::fake()->createWithContent(
         'notes.txt',
-        "This is a test document for async ingestion."
+        'This is a test document for async ingestion.'
     );
 
     $parserMock = Mockery::mock(DocumentParserService::class);
@@ -54,7 +56,7 @@ test('upload request dispatches async ingestion job and returns quickly', functi
 });
 
 test('ingestion job marks document completed when embedding succeeds', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $document = Document::create([
         'user_id' => $user->id,
@@ -110,7 +112,7 @@ test('ingestion job marks document completed when embedding succeeds', function 
 });
 
 test('ingestion job marks document failed on final retry failure', function () {
-    $user = \App\Models\User::factory()->create();
+    $user = User::factory()->create();
 
     $document = Document::create([
         'user_id' => $user->id,
@@ -148,6 +150,7 @@ test('ingestion job marks document failed on final retry failure', function () {
     $document->refresh();
 
     expect($document->status)->toBe('failed')
+        ->and($document->error_message)->toContain('Document ingestion failed after 1 attempt(s).')
         ->and($document->error_message)->toContain('Embedding API timeout')
         ->and(DocumentChunk::query()->count())->toBe(0);
 });
