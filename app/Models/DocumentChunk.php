@@ -12,6 +12,7 @@ class DocumentChunk extends Model
 
     protected $fillable = [
         'document_id',
+        'user_id',
         'chunk_index',
         'content',
         'excerpt',
@@ -41,5 +42,10 @@ class DocumentChunk extends Model
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 }

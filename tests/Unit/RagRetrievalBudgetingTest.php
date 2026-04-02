@@ -75,7 +75,7 @@ test('retrieveDocuments returns no chunks when all candidates are below similari
     $vectorSearchMock = Mockery::mock(VectorSearchService::class);
     $vectorSearchMock->shouldReceive('searchByEmbedding')
         ->once()
-        ->with([1.0, 0.0, 0.0], 15, 0.85)
+        ->with([1.0, 0.0, 0.0], 15, 0.85, null)
         ->andReturn(collect([
             makeChunk(101, 11, 'Low Similarity Doc', 'irrelevant context', 0, 'txt'),
         ]));
@@ -108,7 +108,7 @@ test('retrieveDocuments enforces chunk limit and keeps chunk-level source proven
     $vectorSearchMock = Mockery::mock(VectorSearchService::class);
     $vectorSearchMock->shouldReceive('searchByEmbedding')
         ->once()
-        ->with([1.0, 0.0, 0.0], 6, 0.7)
+        ->with([1.0, 0.0, 0.0], 6, 0.7, null)
         ->andReturn(new Collection([$chunkA, $chunkB, $chunkC]));
 
     $service = makeRagServiceForRetrievalTests($embeddingMock, $vectorSearchMock);
@@ -146,7 +146,7 @@ test('query marks retrieval as low confidence when top similarity is below thres
     $vectorSearchMock = Mockery::mock(VectorSearchService::class);
     $vectorSearchMock->shouldReceive('searchByEmbedding')
         ->once()
-        ->with([1.0, 0.0, 0.0], 9, 0.5)
+        ->with([1.0, 0.0, 0.0], 9, 0.5, null)
         ->andReturn(collect([
             makeChunk(301, 31, 'Partial Notes', 'Partial context that might help.', 0),
         ]));

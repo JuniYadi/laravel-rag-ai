@@ -4,7 +4,9 @@ namespace App\Livewire;
 
 use App\Jobs\ProcessDocumentIngestion;
 use App\Models\Document;
+use App\Models\User;
 use App\Services\DocumentParserService;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -59,6 +61,7 @@ class DocumentUploader extends Component
             $parsed = $this->parserService->parse($this->upload);
 
             $document = Document::create([
+                'user_id' => $this->currentUserId(),
                 'title' => $parsed['title'],
                 'file_path' => $parsed['file_path'],
                 'file_type' => $parsed['file_type'],
@@ -84,6 +87,7 @@ class DocumentUploader extends Component
     public function loadDocuments(): void
     {
         $this->uploadedDocuments = Document::query()
+            ->where('user_id', $this->currentUserId())
             ->orderByDesc('created_at')
             ->limit(50)
             ->get()
@@ -102,6 +106,8 @@ class DocumentUploader extends Component
 
     public function confirmDelete(Document $document): void
     {
+        $this->authorizeDocumentOwnership($document);
+
         $this->documentToDelete = $document;
         $this->showDeleteModal = true;
     }
@@ -109,6 +115,8 @@ class DocumentUploader extends Component
     public function deleteDocument(): void
     {
         if ($this->documentToDelete) {
+            $this->authorizeDocumentOwnership($this->documentToDelete);
+
             $this->documentToDelete->delete();
             $this->documentToDelete = null;
             $this->showDeleteModal = false;
@@ -120,5 +128,26 @@ class DocumentUploader extends Component
     {
         $this->documentToDelete = null;
         $this->showDeleteModal = false;
+    }
+
+    protected function currentUserId(): int
+    {
+        return $this->currentUser()->id;
+    }
+
+    protected function currentUser(): User
+    {
+        $user = auth()->user();
+
+        if (! $user instanceof User) {
+            abort(403);
+        }
+
+        return $user;
+    }
+
+    protected function authorizeDocumentOwnership(Document $document): void
+    {
+        Gate::authorize('delete', $document);
     }
 }

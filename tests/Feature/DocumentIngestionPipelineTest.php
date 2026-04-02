@@ -54,7 +54,10 @@ test('upload request dispatches async ingestion job and returns quickly', functi
 });
 
 test('ingestion job marks document completed when embedding succeeds', function () {
+    $user = \App\Models\User::factory()->create();
+
     $document = Document::create([
+        'user_id' => $user->id,
         'title' => 'Manual Doc',
         'file_path' => 'documents/manual.txt',
         'file_type' => 'txt',
@@ -107,7 +110,10 @@ test('ingestion job marks document completed when embedding succeeds', function 
 });
 
 test('ingestion job marks document failed on final retry failure', function () {
+    $user = \App\Models\User::factory()->create();
+
     $document = Document::create([
+        'user_id' => $user->id,
         'title' => 'Broken Doc',
         'file_path' => 'documents/broken.txt',
         'file_type' => 'txt',
