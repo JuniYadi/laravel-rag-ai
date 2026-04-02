@@ -77,6 +77,7 @@ class ProcessDocumentIngestion implements ShouldQueue
 
                     $storedChunks[] = DocumentChunk::create([
                         'document_id' => $document->id,
+                        'user_id' => $document->user_id,
                         'chunk_index' => $chunk['chunk_index'],
                         'content' => $chunk['content'],
                         'excerpt' => $chunk['excerpt'],

@@ -75,7 +75,7 @@ class RagService
      */
     public function query(string $question, int $maxDocuments = 5): array
     {
-        $documents = $this->retrieveDocuments($question, $maxDocuments);
+        $documents = $this->retrieveDocuments($question, $maxDocuments, $this->currentUserId());
 
         $topSimilarity = (float) ($documents->max(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
         $isLowConfidence = $documents->isNotEmpty() && $topSimilarity < $this->lowConfidenceSimilarity;
@@ -121,16 +121,18 @@ class RagService
     /**
      * Retrieve relevant chunks for the query with confidence filtering and prompt budgeting.
      */
-    public function retrieveDocuments(string $query, int $limit = 5): Collection
+    public function retrieveDocuments(string $query, int $limit = 5, ?int $userId = null): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
         $effectiveLimit = max(1, min($limit, $this->maxChunks));
         $candidateLimit = max($effectiveLimit * 3, $effectiveLimit);
+        $resolvedUserId = $userId ?? $this->currentUserId();
 
         $candidates = $this->vectorSearchService->searchByEmbedding(
             $queryEmbedding,
             $candidateLimit,
-            $this->minSimilarity
+            $this->minSimilarity,
+            $resolvedUserId
         );
 
         $scored = $candidates
@@ -259,7 +261,7 @@ PROMPT;
      */
     public function queryWithStream(string $question, int $maxDocuments = 5): array
     {
-        $documents = $this->retrieveDocuments($question, $maxDocuments);
+        $documents = $this->retrieveDocuments($question, $maxDocuments, $this->currentUserId());
         $context = $this->buildContext($documents);
         $topSimilarity = (float) ($documents->max(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
         $isLowConfidence = $documents->isNotEmpty() && $topSimilarity < $this->lowConfidenceSimilarity;
@@ -282,7 +284,7 @@ PROMPT;
      */
     public function evaluateQuery(string $question): array
     {
-        $documents = $this->retrieveDocuments($question);
+        $documents = $this->retrieveDocuments($question, userId: $this->currentUserId());
         $context = $this->buildContext($documents);
         $topSimilarity = (float) ($documents->max(fn ($doc) => (float) ($doc->rag_similarity ?? 0.0)) ?? 0.0);
 
@@ -406,5 +408,12 @@ PROMPT;
     protected function estimateTokenCount(string $text): int
     {
         return max(1, (int) ceil(mb_strlen($text) / 4));
+    }
+
+    protected function currentUserId(): ?int
+    {
+        $userId = auth()->id();
+
+        return is_int($userId) ? $userId : null;
     }
 }

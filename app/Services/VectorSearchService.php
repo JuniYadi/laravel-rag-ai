@@ -18,21 +18,22 @@ class VectorSearchService
     /**
      * Search for similar content chunks using text query.
      */
-    public function search(string $query, int $limit = 5, float $minSimilarity = 0.7): Collection
+    public function search(string $query, int $limit = 5, float $minSimilarity = 0.7, ?int $userId = null): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
 
-        return $this->searchByEmbedding($queryEmbedding, $limit, $minSimilarity);
+        return $this->searchByEmbedding($queryEmbedding, $limit, $minSimilarity, $userId);
     }
 
     /**
      * Search for similar chunks using embedding vector.
      * Falls back to document-level vectors when chunks are not present.
      */
-    public function searchByEmbedding(array $embedding, int $limit = 5, float $minSimilarity = 0.7): Collection
+    public function searchByEmbedding(array $embedding, int $limit = 5, float $minSimilarity = 0.7, ?int $userId = null): Collection
     {
         $chunks = DocumentChunk::query()
             ->with('document')
+            ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
             ->whereVectorSimilarTo('embedding', $embedding, minSimilarity: $minSimilarity)
             ->limit($limit)
             ->get();
@@ -46,6 +47,7 @@ class VectorSearchService
 
         $fallbackDocuments = Document::query()
             ->whereNotNull('embedding')
+            ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
             ->when(! empty($alreadyIncludedDocumentIds), fn ($q) => $q->whereNotIn('id', $alreadyIncludedDocumentIds))
             ->whereVectorSimilarTo('embedding', $embedding, minSimilarity: $minSimilarity)
             ->limit($remaining)
@@ -58,12 +60,13 @@ class VectorSearchService
     /**
      * Search with distance calculation.
      */
-    public function searchWithDistance(string $query, int $limit = 5, float $maxDistance = 0.3): Collection
+    public function searchWithDistance(string $query, int $limit = 5, float $maxDistance = 0.3, ?int $userId = null): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
 
         return DocumentChunk::query()
             ->with('document')
+            ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
             ->select('*')
             ->selectVectorDistance('embedding', $queryEmbedding, as: 'distance')
             ->whereVectorDistanceLessThan('embedding', $queryEmbedding, maxDistance: $maxDistance)
@@ -75,12 +78,13 @@ class VectorSearchService
     /**
      * Get most similar chunks ordered by similarity.
      */
-    public function getMostSimilar(string $query, int $limit = 10): Collection
+    public function getMostSimilar(string $query, int $limit = 10, ?int $userId = null): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
 
         return DocumentChunk::query()
             ->with('document')
+            ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
             ->select('*')
             ->selectVectorDistance('embedding', $queryEmbedding, as: 'distance')
             ->whereNotNull('embedding')
@@ -115,12 +119,13 @@ class VectorSearchService
     /**
      * Calculate similarity score between query and stored chunks.
      */
-    public function calculateSimilarities(string $query): Collection
+    public function calculateSimilarities(string $query, ?int $userId = null): Collection
     {
         $queryEmbedding = $this->embeddingService->generateEmbedding($query);
 
         return DocumentChunk::query()
             ->with('document')
+            ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
             ->whereNotNull('embedding')
             ->get()
             ->map(function ($chunk) use ($queryEmbedding) {
