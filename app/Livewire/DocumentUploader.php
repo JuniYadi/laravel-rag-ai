@@ -78,7 +78,7 @@ class DocumentUploader extends Component
             $this->loadDocuments();
 
         } catch (\Exception $e) {
-            $this->statusMessage = 'Error: '.$e->getMessage();
+            $this->statusMessage = 'Upload failed. Please retry. Operator hint: '.$e->getMessage();
         } finally {
             $this->isProcessing = false;
         }

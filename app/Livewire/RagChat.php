@@ -64,7 +64,7 @@ class RagChat extends Component
         } catch (\Exception $e) {
             $this->messages[] = [
                 'role' => 'assistant',
-                'content' => 'Sorry, I encountered an error: '.$e->getMessage(),
+                'content' => 'Sorry, I encountered an error while answering your query. Please retry in a moment. Operator hint: '.$e->getMessage(),
             ];
         } finally {
             $this->isProcessing = false;

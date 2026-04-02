@@ -50,13 +50,21 @@ function makeRagServiceForRetrievalTests(
     config()->set('services.llm.base_url', 'https://api.openai.com/v1');
     config()->set('services.llm.api_key', 'test-key');
 
-    return new class($vectorSearchService, $embeddingService) extends RagService {
-        protected function callLlm(string $systemPrompt, string $userPrompt): string
+    return new class($vectorSearchService, $embeddingService) extends RagService
+    {
+        protected function callLlm(string $systemPrompt, string $userPrompt, ?string $requestId = null): array
         {
             preg_match_all('/\[S\d+\]/', $userPrompt, $matches);
             $refs = array_values(array_unique($matches[0] ?? []));
 
-            return 'Grounded answer '.implode(' ', $refs);
+            return [
+                'answer' => 'Grounded answer '.implode(' ', $refs),
+                'token_usage' => [
+                    'prompt_tokens' => 120,
+                    'completion_tokens' => 40,
+                    'total_tokens' => 160,
+                ],
+            ];
         }
     };
 }

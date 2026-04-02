@@ -52,6 +52,13 @@ return [
         'queue' => env('DOCUMENT_INGESTION_QUEUE', 'documents'),
         'chunk_size' => (int) env('DOCUMENT_CHUNK_SIZE', 1200),
         'chunk_overlap' => (int) env('DOCUMENT_CHUNK_OVERLAP', 200),
+        'ingestion_retry' => [
+            'tries' => (int) env('DOCUMENT_INGESTION_RETRY_TRIES', 3),
+            'backoff_seconds' => array_values(array_map(
+                fn ($value) => (int) trim($value),
+                array_filter(explode(',', (string) env('DOCUMENT_INGESTION_RETRY_BACKOFF', '10,30,120')), fn ($value) => trim($value) !== '')
+            )),
+        ],
     ],
 
     /*
@@ -87,6 +94,17 @@ return [
         'max_context_tokens' => (int) env('RAG_MAX_CONTEXT_TOKENS', 3000),
         'min_similarity' => (float) env('RAG_MIN_SIMILARITY', 0.7),
         'low_confidence_similarity' => (float) env('RAG_LOW_CONFIDENCE_SIMILARITY', 0.55),
+        'retry' => [
+            'attempts' => (int) env('RAG_RETRY_ATTEMPTS', 3),
+            'backoff_ms' => array_values(array_map(
+                fn ($value) => (int) trim($value),
+                array_filter(explode(',', (string) env('RAG_RETRY_BACKOFF_MS', '200,600,1500')), fn ($value) => trim($value) !== '')
+            )),
+        ],
+        'cost' => [
+            'input_per_1m_tokens' => (float) env('RAG_COST_INPUT_PER_1M_TOKENS', 0.15),
+            'output_per_1m_tokens' => (float) env('RAG_COST_OUTPUT_PER_1M_TOKENS', 0.60),
+        ],
     ],
 
 ];
