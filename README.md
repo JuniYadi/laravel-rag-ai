@@ -5,10 +5,12 @@ A Laravel application combining Retrieval-Augmented Generation (RAG) with AI-pow
 ## Requirements
 
 - PHP 8.5+
-- PostgreSQL with pgvector extension
 - Composer
 - Node.js & NPM
 - OpenAI API key (or compatible LLM provider)
+- Database mode (choose one):
+  - Quick local dev: SQLite (no pgvector)
+  - Recommended / production RAG: PostgreSQL + pgvector extension
 
 ## Installation
 
@@ -22,26 +24,80 @@ npm install
 npm run build
 
 php artisan key:generate
-php artisan migrate
 ```
 
 ## Configuration
 
-### Environment Variables
+### Choose your database mode
 
-Copy `.env.example` to `.env` and configure:
+#### Mode A — Quick local dev (SQLite fallback)
+
+Use this for fast app setup and UI/API development. Retrieval quality/features may be limited versus pgvector.
+
+```env
+DB_CONNECTION=sqlite
+```
+
+Then run:
+
+```bash
+touch database/database.sqlite
+php artisan migrate
+```
+
+#### Mode B — Recommended / production (PostgreSQL + pgvector)
+
+Use this for proper vector search behavior.
+
+```env
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=laravel_rag
+DB_USERNAME=postgres
+DB_PASSWORD=your-password
+```
+
+Before migrating, ensure extension is enabled:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Then run:
+
+```bash
+php artisan migrate
+```
+
+### Environment variables
+
+Copy `.env.example` to `.env` and configure at minimum:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_CONNECTION` | Database driver | `pgsql` |
-| `DB_DATABASE` | Database name | `laravel_rag` |
+| `DB_CONNECTION` | Database driver | `sqlite` |
 | `LLM_PROVIDER` | LLM provider | `openai` |
 | `LLM_MODEL` | Model name | `gpt-4o-mini` |
 | `LLM_BASE_URL` | LLM API base URL | `https://api.openai.com/v1` |
+| `LLM_API_KEY` | API key for selected LLM provider | _(required)_ |
 | `DOCUMENT_DISK` | Storage disk for documents | `local` |
 | `DOCUMENT_STORAGE_PATH` | Path within disk | `documents` |
 | `DOCUMENT_CHUNK_SIZE` | Target chars per chunk during ingestion | `1200` |
 | `DOCUMENT_CHUNK_OVERLAP` | Overlap chars between neighboring chunks | `200` |
+
+If using PostgreSQL mode, also set `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`. If using SQLite mode, create `database/database.sqlite`. 
+
+### Troubleshooting
+
+- **`could not find driver (pgsql)`**
+  - Install/enable PHP PostgreSQL extension (`pdo_pgsql`).
+- **`type "vector" does not exist` or migration fails on vector columns**
+  - Run `CREATE EXTENSION IF NOT EXISTS vector;` in your target PostgreSQL database.
+- **Embedding/LLM calls fail (`401`, `invalid_api_key`, timeout)**
+  - Verify `LLM_API_KEY`, `LLM_BASE_URL`, and outbound network access.
+- **SQLite file errors (`unable to open database file`)**
+  - Ensure `database/database.sqlite` exists and is writable by the app process.
 
 ### Google OAuth (Optional)
 
