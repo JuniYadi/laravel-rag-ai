@@ -6,7 +6,7 @@
             <flux:subheading class="mt-1">Ask questions about your documents</flux:subheading>
         </div>
         @if(count($messages) > 0)
-            <flux:button wire:click="clearChat" variant="secondary" size="sm" icon="trash">
+            <flux:button wire:click="clearChat" variant="outline" size="sm" icon="trash">
                 Clear Chat
             </flux:button>
         @endif
