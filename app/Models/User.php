@@ -43,6 +43,11 @@ class User extends Authenticatable
         return $this->hasMany(DocumentChunk::class);
     }
 
+    public function chatMessages(): HasMany
+    {
+        return $this->hasMany(ChatMessage::class);
+    }
+
     /**
      * Determine if the user registered via a social provider.
      */

@@ -14,7 +14,9 @@ class DocumentUploader extends Component
 {
     use WithFileUploads;
 
-    public $upload;
+    public $upload = null;
+
+    public array $uploads = [];
 
     public bool $isProcessing = false;
 
@@ -43,42 +45,61 @@ class DocumentUploader extends Component
         return view('livewire.document-uploader');
     }
 
-    public function updatedUpload()
+    public function updatedUpload(): void
     {
-        $this->processUpload();
+        if ($this->upload) {
+            $this->uploads = [$this->upload];
+            $this->processUpload(isMultiFile: false);
+        }
     }
 
-    public function processUpload(): void
+    public function updatedUploads()
+    {
+        $this->processUpload(isMultiFile: true);
+    }
+
+    public function processUpload(bool $isMultiFile = true): void
     {
         $this->validate([
-            'upload' => 'required|file|max:10240|mimes:pdf,txt,md,markdown',
+            'uploads' => 'required|array|min:1',
+            'uploads.*' => 'required|file|max:10240|mimes:pdf,txt,md,markdown',
         ]);
 
         $this->isProcessing = true;
-        $this->statusMessage = 'Parsing document...';
+
+        $queued = 0;
+        $failed = 0;
 
         try {
-            $parsed = $this->parserService->parse($this->upload);
+            foreach ($this->uploads as $upload) {
+                try {
+                    $parsed = $this->parserService->parse($upload);
 
-            $document = Document::create([
-                'user_id' => $this->currentUserId(),
-                'title' => $parsed['title'],
-                'file_path' => $parsed['file_path'],
-                'file_type' => $parsed['file_type'],
-                'content' => $parsed['content'],
-                'excerpt' => $parsed['excerpt'],
-                'status' => 'pending',
-                'error_message' => null,
-            ]);
+                    $document = Document::create([
+                        'user_id' => $this->currentUserId(),
+                        'title' => $parsed['title'],
+                        'file_path' => $parsed['file_path'],
+                        'file_type' => $parsed['file_type'],
+                        'content' => $parsed['content'],
+                        'excerpt' => $parsed['excerpt'],
+                        'status' => 'pending',
+                        'error_message' => null,
+                    ]);
 
-            ProcessDocumentIngestion::dispatch($document->id);
+                    ProcessDocumentIngestion::dispatch($document->id);
+                    $queued++;
+                } catch (\Throwable) {
+                    $failed++;
+                }
+            }
 
-            $this->statusMessage = 'Upload accepted. Document is queued for processing.';
+            $this->statusMessage = $isMultiFile
+                ? "Upload finished. Queued: {$queued}, failed: {$failed}."
+                : 'Upload accepted. Document is queued for processing.';
+
             $this->upload = null;
+            $this->uploads = [];
             $this->loadDocuments();
-
-        } catch (\Exception $e) {
-            $this->statusMessage = 'Upload failed. Please retry. Operator hint: '.$e->getMessage();
         } finally {
             $this->isProcessing = false;
         }
