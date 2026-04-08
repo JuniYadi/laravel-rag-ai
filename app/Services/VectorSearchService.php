@@ -10,9 +10,12 @@ class VectorSearchService
 {
     protected EmbeddingService $embeddingService;
 
-    public function __construct(EmbeddingService $embeddingService)
+    protected PgVectorPreflightService $pgVectorPreflightService;
+
+    public function __construct(EmbeddingService $embeddingService, PgVectorPreflightService $pgVectorPreflightService)
     {
         $this->embeddingService = $embeddingService;
+        $this->pgVectorPreflightService = $pgVectorPreflightService;
     }
 
     /**
@@ -31,6 +34,8 @@ class VectorSearchService
      */
     public function searchByEmbedding(array $embedding, int $limit = 5, float $minSimilarity = 0.7, ?int $userId = null): Collection
     {
+        $this->pgVectorPreflightService->ensureVectorExtensionReady();
+
         $chunks = DocumentChunk::query()
             ->with('document')
             ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
