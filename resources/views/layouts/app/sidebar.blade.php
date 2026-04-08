@@ -15,6 +15,12 @@
                     <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
                         {{ __('Dashboard') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="folder-open" :href="route('documents')" :current="request()->routeIs('documents')" wire:navigate>
+                        {{ __('Documents') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="chat-bubble-left-right" :href="route('rag.chat')" :current="request()->routeIs('rag.chat')" wire:navigate>
+                        {{ __('RAG Chat') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 
