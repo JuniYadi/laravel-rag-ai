@@ -6,14 +6,16 @@
 
         <div class="mt-6">
             <flux:field>
-                <flux:label>File</flux:label>
+                <flux:label>Files</flux:label>
                 <flux:input
                     type="file"
-                    wire:model="upload"
+                    wire:model="uploads"
                     accept=".pdf,.txt,.md,.markdown"
                     :disabled="$isProcessing"
+                    multiple
                 />
-                <flux:error name="upload" />
+                <flux:error name="uploads" />
+                <flux:error name="uploads.*" />
             </flux:field>
 
             @if($isProcessing)
