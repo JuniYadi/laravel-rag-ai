@@ -14,6 +14,8 @@ class DocumentUploader extends Component
 {
     use WithFileUploads;
 
+    public $upload = null;
+
     public array $uploads = [];
 
     public bool $isProcessing = false;
@@ -43,12 +45,20 @@ class DocumentUploader extends Component
         return view('livewire.document-uploader');
     }
 
-    public function updatedUploads()
+    public function updatedUpload(): void
     {
-        $this->processUpload();
+        if ($this->upload) {
+            $this->uploads = [$this->upload];
+            $this->processUpload(isMultiFile: false);
+        }
     }
 
-    public function processUpload(): void
+    public function updatedUploads()
+    {
+        $this->processUpload(isMultiFile: true);
+    }
+
+    public function processUpload(bool $isMultiFile = true): void
     {
         $this->validate([
             'uploads' => 'required|array|min:1',
@@ -83,7 +93,11 @@ class DocumentUploader extends Component
                 }
             }
 
-            $this->statusMessage = "Upload finished. Queued: {$queued}, failed: {$failed}.";
+            $this->statusMessage = $isMultiFile
+                ? "Upload finished. Queued: {$queued}, failed: {$failed}."
+                : 'Upload accepted. Document is queued for processing.';
+
+            $this->upload = null;
             $this->uploads = [];
             $this->loadDocuments();
         } finally {
