@@ -59,7 +59,7 @@ class DocumentUploader extends Component
         }
     }
 
-    public function processUpload(): void
+    public function updatedUploads(): void
     {
         if ($this->isProcessing || empty($this->uploads)) {
             return;
@@ -76,9 +76,6 @@ class DocumentUploader extends Component
         $queued = 0;
         $failed = 0;
         $errors = [];
-
-        $totalUploads = count($this->uploads);
-
         try {
             while (! empty($this->uploads)) {
                 $queued++;
@@ -108,18 +105,22 @@ class DocumentUploader extends Component
                     ]);
 
                     ProcessDocumentIngestion::dispatch($document->id);
+                    $queued++;
                 } catch (\Throwable $e) {
                     $failed++;
                     $errors[] = $upload->getClientOriginalName().': '.$e->getMessage();
                 }
             }
 
-            $msg = "Upload finished. Queued: {$totalUploads}, failed: {$failed}.";
-            if ($errors !== []) {
-                $msg .= ' Errors: '.implode(' | ', $errors);
+            if ($isMultiFile) {
+                $msg = "Upload finished. Queued: {$queued}, failed: {$failed}.";
+                if ($errors !== []) {
+                    $msg .= ' Errors: '.implode(' | ', $errors);
+                }
+                $this->statusMessage = $msg;
+            } else {
+                $this->statusMessage = 'Upload accepted. Document is queued for processing.';
             }
-
-            $this->statusMessage = $msg;
 
             $this->upload = null;
             $this->uploads = [];
