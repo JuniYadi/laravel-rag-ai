@@ -67,8 +67,11 @@ return [
     |--------------------------------------------------------------------------
     */
     'embedding' => [
-        'model' => 'text-embedding-3-small',
-        'dimensions' => 1536,
+        'provider' => env('EMBEDDING_PROVIDER', env('LLM_PROVIDER', 'openai')),
+        'model' => env('EMBEDDING_MODEL', 'text-embedding-3-small'),
+        'api_key' => env('EMBEDDING_API_KEY', env('OPENAI_API_KEY')),
+        'base_url' => env('EMBEDDING_BASE_URL', env('LLM_BASE_URL', 'https://api.openai.com/v1')),
+        'dimensions' => (int) env('EMBEDDING_DIMENSIONS', 1536),
     ],
 
     /*
