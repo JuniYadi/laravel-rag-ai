@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use LogicException;
 use RuntimeException;
 use Throwable;
 
@@ -614,6 +615,25 @@ PROMPT;
             } catch (Throwable $exception) {
                 $lastException = $exception;
 
+                if ($this->isNonRetryableException($exception)) {
+                    Log::warning('rag.phase.non_retryable_failure', [
+                        'request_id' => $requestId,
+                        'phase' => $phase,
+                        'attempt' => $attempt,
+                        'max_attempts' => $this->retryAttempts,
+                        'error' => $exception->getMessage(),
+                    ]);
+
+                    throw new RuntimeException(
+                        sprintf(
+                            'RAG phase [%s] failed due to non-retryable misconfiguration: %s',
+                            $phase,
+                            $exception->getMessage()
+                        ),
+                        previous: $exception
+                    );
+                }
+
                 Log::warning('rag.phase.retry', [
                     'request_id' => $requestId,
                     'phase' => $phase,
@@ -643,6 +663,11 @@ PROMPT;
             ),
             previous: $lastException
         );
+    }
+
+    protected function isNonRetryableException(Throwable $exception): bool
+    {
+        return $exception instanceof LogicException;
     }
 
     protected function currentUserId(): ?int

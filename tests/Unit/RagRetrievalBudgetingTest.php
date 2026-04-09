@@ -6,6 +6,7 @@ use App\Services\EmbeddingService;
 use App\Services\RagService;
 use App\Services\VectorSearchService;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -168,6 +169,70 @@ test('query marks retrieval as low confidence when top similarity is below thres
         ->and($result['retrieval']['is_low_confidence'])->toBeTrue()
         ->and($result['sources'][0]['source_ref'])->toBe('S1')
         ->and($result['sources'][0]['similarity'])->toBe(0.62);
+});
+
+test('existing rag retrieval flow passes when embedding config is separate from llm config', function () {
+    config()->set('services.llm.provider', 'openai');
+    config()->set('services.llm.model', 'gpt-4o-mini');
+    config()->set('services.llm.base_url', 'https://llm.example.com/v1');
+    config()->set('services.llm.api_key', 'llm-key');
+
+    config()->set('services.embedding.provider', 'openai');
+    config()->set('services.embedding.model', 'text-embedding-3-small');
+    config()->set('services.embedding.api_key', 'embedding-key');
+    config()->set('services.embedding.base_url', 'https://embeddings.example.com/v1');
+
+    config()->set('services.rag.max_chunks', 2);
+    config()->set('services.rag.max_context_chars', 12000);
+    config()->set('services.rag.max_context_tokens', 3000);
+    config()->set('services.rag.min_similarity', 0.7);
+    config()->set('services.rag.low_confidence_similarity', 0.55);
+
+    Http::fake([
+        'https://embeddings.example.com/v1/embeddings' => Http::response([
+            'data' => [
+                ['embedding' => [1.0, 0.0, 0.0]],
+            ],
+        ], 200),
+    ]);
+
+    $embeddingService = new EmbeddingService;
+    $candidate = makeChunk(401, 41, 'Deploy Doc', 'Deployment runbook with clear steps.', 0);
+    $candidate->embedding = [0.95, 0.05, 0.0];
+
+    $vectorSearchMock = Mockery::mock(VectorSearchService::class);
+    $vectorSearchMock->shouldReceive('searchByEmbedding')
+        ->once()
+        ->with([1.0, 0.0, 0.0], 6, 0.7, null)
+        ->andReturn(new Collection([$candidate]));
+
+    $service = new class($vectorSearchMock, $embeddingService) extends RagService
+    {
+        protected function callLlm(string $systemPrompt, string $userPrompt, ?string $requestId = null): array
+        {
+            return [
+                'answer' => 'Grounded answer [S1]',
+                'token_usage' => [
+                    'prompt_tokens' => 100,
+                    'completion_tokens' => 20,
+                    'total_tokens' => 120,
+                ],
+            ];
+        }
+    };
+
+    $result = $service->query('how to deploy?');
+
+    expect($result['document_count'])->toBe(1)
+        ->and($result['sources'][0]['title'])->toBe('Deploy Doc')
+        ->and($result['sources'][0]['source_ref'])->toBe('S1')
+        ->and($result['answer'])->toContain('[S1]');
+
+    Http::assertSent(function ($request) {
+        return $request->url() === 'https://embeddings.example.com/v1/embeddings'
+            && $request->hasHeader('Authorization', 'Bearer embedding-key')
+            && $request['model'] === 'text-embedding-3-small';
+    });
 });
 
 afterEach(function (): void {
