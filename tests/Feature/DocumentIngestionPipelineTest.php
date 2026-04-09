@@ -40,9 +40,9 @@ test('upload request dispatches async ingestion job and returns quickly', functi
     $this->app->instance(DocumentParserService::class, $parserMock);
 
     Livewire::test(DocumentUploader::class)
-        ->set('upload', $uploadedFile)
+        ->set('uploads', [$uploadedFile])
         ->assertSet('isProcessing', false)
-        ->assertSet('statusMessage', 'Upload accepted. Document is queued for processing.');
+        ->assertSet('statusMessage', 'Upload finished. Queued: 1, failed: 0.');
 
     $document = Document::first();
 

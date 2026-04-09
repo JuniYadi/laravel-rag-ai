@@ -14,7 +14,7 @@ class DocumentUploader extends Component
 {
     use WithFileUploads;
 
-    public $upload = null;
+    public ?object $upload = null;
 
     public array $uploads = [];
 
@@ -53,7 +53,7 @@ class DocumentUploader extends Component
         }
     }
 
-    public function updatedUploads()
+    public function updatedUploads(): void
     {
         $this->processUpload(isMultiFile: true);
     }
@@ -61,14 +61,16 @@ class DocumentUploader extends Component
     public function processUpload(bool $isMultiFile = true): void
     {
         $this->validate([
-            'uploads' => 'required|array|min:1',
+            'uploads' => 'required|array|min:1|max:10',
             'uploads.*' => 'required|file|max:10240|mimes:pdf,txt,md,markdown',
         ]);
 
         $this->isProcessing = true;
+        $this->statusMessage = 'Parsing document(s)...';
 
         $queued = 0;
         $failed = 0;
+        $errors = [];
 
         try {
             foreach ($this->uploads as $upload) {
@@ -88,14 +90,21 @@ class DocumentUploader extends Component
 
                     ProcessDocumentIngestion::dispatch($document->id);
                     $queued++;
-                } catch (\Throwable) {
+                } catch (\Throwable $e) {
                     $failed++;
+                    $errors[] = $upload->getClientOriginalName().': '.$e->getMessage();
                 }
             }
 
-            $this->statusMessage = $isMultiFile
-                ? "Upload finished. Queued: {$queued}, failed: {$failed}."
-                : 'Upload accepted. Document is queued for processing.';
+            if ($isMultiFile) {
+                $msg = "Upload finished. Queued: {$queued}, failed: {$failed}.";
+                if ($errors !== []) {
+                    $msg .= ' Errors: '.implode(' | ', $errors);
+                }
+                $this->statusMessage = $msg;
+            } else {
+                $this->statusMessage = 'Upload accepted. Document is queued for processing.';
+            }
 
             $this->upload = null;
             $this->uploads = [];

@@ -49,7 +49,7 @@ return [
     'document' => [
         'disk' => env('DOCUMENT_DISK', 'local'),
         'storage_path' => env('DOCUMENT_STORAGE_PATH', 'documents'),
-        'queue' => env('DOCUMENT_INGESTION_QUEUE', 'documents'),
+        'queue' => env('DOCUMENT_INGESTION_QUEUE', 'default'),
         'chunk_size' => (int) env('DOCUMENT_CHUNK_SIZE', 1200),
         'chunk_overlap' => (int) env('DOCUMENT_CHUNK_OVERLAP', 200),
         'ingestion_retry' => [
