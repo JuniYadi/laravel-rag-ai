@@ -1,5 +1,13 @@
 # Laravel RAG AI
 
+[![codecov](https://codecov.io/gh/JuniYadi/laravel-rag-ai/graph/badge.svg?token=IB1vVqdaPc)](https://codecov.io/gh/JuniYadi/laravel-rag-ai)
+[![GitHub release](https://img.shields.io/github/v/release/JuniYadi/laravel-rag-ai?include_prereleases)](https://github.com/JuniYadi/laravel-rag-ai/releases)
+[![Docker](https://img.shields.io/badge/ghcr.io-juniyadi%2Flaravel--rag--ai-blue)](https://github.com/JuniYadi/laravel-rag-ai/pkgs/container/laravel-rag-ai)
+[![License](https://img.shields.io/github/license/JuniYadi/laravel-rag-ai)](LICENSE)
+[![PHP Version](https://img.shields.io/badge/PHP-8.5-8892BF)](https://php.net)
+[![Laravel](https://img.shields.io/badge/Laravel-13-FF2D20)](https://laravel.com)
+
+
 A Laravel application combining Retrieval-Augmented Generation (RAG) with AI-powered chat. Upload documents, index them using vector embeddings, and ask questions that get answered using your own data.
 
 ## Requirements
