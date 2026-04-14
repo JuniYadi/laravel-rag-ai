@@ -15,6 +15,10 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
+beforeEach(function (): void {
+    config()->set('app.key', 'base64:'.base64_encode(str_repeat('0', 32)));
+});
+
 test('upload request dispatches async ingestion job and returns quickly', function () {
     Queue::fake();
 
@@ -153,6 +157,62 @@ test('ingestion job marks document failed on final retry failure', function () {
         ->and($document->error_message)->toContain('Document ingestion failed after 1 attempt(s).')
         ->and($document->error_message)->toContain('Embedding API timeout')
         ->and(DocumentChunk::query()->count())->toBe(0);
+});
+
+test('ingestion job returns early when document is missing', function () {
+    $embeddingMock = Mockery::mock(EmbeddingService::class);
+    $chunkingMock = Mockery::mock(DocumentChunkingService::class);
+
+    $job = new ProcessDocumentIngestion(999999);
+    $job->handle($embeddingMock, $chunkingMock);
+
+    expect(Document::query()->count())->toBe(0)
+        ->and(DocumentChunk::query()->count())->toBe(0);
+});
+
+test('ingestion job retries when attempts remain', function () {
+    $user = User::factory()->create();
+
+    $document = Document::create([
+        'user_id' => $user->id,
+        'title' => 'Retry Doc',
+        'file_path' => 'documents/retry.txt',
+        'file_type' => 'txt',
+        'content' => 'content',
+        'excerpt' => 'excerpt',
+        'status' => 'pending',
+    ]);
+
+    $embeddingMock = Mockery::mock(EmbeddingService::class);
+    $embeddingMock->shouldReceive('generateEmbeddings')
+        ->once()
+        ->andThrow(new RuntimeException('Temporary upstream timeout'));
+
+    $chunkingMock = Mockery::mock(DocumentChunkingService::class);
+    $chunkingMock->shouldReceive('chunk')
+        ->once()
+        ->andReturn([
+            [
+                'chunk_index' => 0,
+                'content' => 'content',
+                'excerpt' => 'content',
+                'char_count' => 7,
+                'token_count' => 2,
+                'metadata' => ['chunk_size' => 1200, 'chunk_overlap' => 200],
+            ],
+        ]);
+
+    $job = new ProcessDocumentIngestion($document->id);
+    $job->tries = 2;
+
+    expect(fn () => $job->handle($embeddingMock, $chunkingMock))
+        ->toThrow(RuntimeException::class, 'Temporary upstream timeout');
+
+    $document->refresh();
+
+    expect($document->status)->toBe('processing')
+        ->and($document->error_message)->toBeNull()
+        ->and($document->completed_at)->toBeNull();
 });
 
 afterEach(function (): void {
