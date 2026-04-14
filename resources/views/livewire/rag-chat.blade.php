@@ -81,7 +81,7 @@
     <div class="border-t border-neutral-200 dark:border-neutral-700 p-4">
         <form wire:submit.prevent="sendQuery" class="flex gap-3">
             <flux:input
-                wire:model.live.debounce.250ms="query"
+                wire:model.live="query"
                 placeholder="Ask a question about your documents..."
                 :disabled="$isProcessing"
                 class="flex-1"
@@ -89,7 +89,7 @@
             <flux:button
                 type="submit"
                 variant="primary"
-                :disabled="$isProcessing || blank(trim($query))"
+                :disabled="$isProcessing || $query === ''"
                 icon="paper-airplane"
             >
                 Send
