@@ -9,17 +9,37 @@
                 <flux:label>Files</flux:label>
                 <flux:input
                     type="file"
-                    wire:model="uploads"
+                    wire:model="upload"
                     accept=".pdf,.txt,.md,.markdown"
                     :disabled="$isProcessing"
-                    multiple
                 />
-                <flux:error name="uploads" />
-                <flux:error name="uploads.*" />
-                @error('uploads.*')
+                <flux:error name="upload" />
+                @error('upload')
                     <p class="mt-2 text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
                 @enderror
             </flux:field>
+
+            @if($uploads)
+                <div class="mt-4 text-sm text-neutral-700 dark:text-neutral-300">
+                    <p class="font-medium">Queued files:</p>
+                    <ul class="mt-2 list-disc space-y-1 pl-5">
+                        @foreach($uploads as $queuedUpload)
+                            <li>{{ $queuedUpload->getClientOriginalName() }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
+            <div class="mt-4">
+                <flux:button
+                    type="button"
+                    wire:click="processUpload"
+                    variant="primary"
+                    :disabled="$isProcessing || count($uploads) === 0"
+                >
+                    Upload queued files
+                </flux:button>
+            </div>
 
             @if($isProcessing)
                 <div class="mt-4 flex items-center gap-3">

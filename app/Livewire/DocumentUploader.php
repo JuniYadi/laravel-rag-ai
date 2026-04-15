@@ -48,18 +48,23 @@ class DocumentUploader extends Component
     public function updatedUpload(): void
     {
         if ($this->upload) {
-            $this->uploads = [$this->upload];
-            $this->processUpload(isMultiFile: false);
+            $this->validate([
+                'upload' => 'required|file|max:10240|mimes:pdf,txt,md,markdown',
+            ]);
+
+            $this->uploads[] = $this->upload;
+            $this->upload = null;
+
+            $this->statusMessage = sprintf('Queued %d file(s). Click Upload to process them one by one.', count($this->uploads));
         }
     }
 
-    public function updatedUploads(): void
+    public function processUpload(): void
     {
-        $this->processUpload(isMultiFile: true);
-    }
+        if ($this->isProcessing || empty($this->uploads)) {
+            return;
+        }
 
-    public function processUpload(bool $isMultiFile = true): void
-    {
         $this->validate([
             'uploads' => 'required|array|min:1|max:10',
             'uploads.*' => 'required|file|max:10240|mimes:pdf,txt,md,markdown',
@@ -72,8 +77,22 @@ class DocumentUploader extends Component
         $failed = 0;
         $errors = [];
 
+        $totalUploads = count($this->uploads);
+
         try {
-            foreach ($this->uploads as $upload) {
+            while (! empty($this->uploads)) {
+                $queued++;
+
+                /** @var object $upload */
+                $upload = array_shift($this->uploads);
+
+                $this->statusMessage = sprintf(
+                    'Parsing file %s (%d of %d)...',
+                    $upload->getClientOriginalName(),
+                    $queued,
+                    $totalUploads
+                );
+
                 try {
                     $parsed = $this->parserService->parse($upload);
 
@@ -89,22 +108,18 @@ class DocumentUploader extends Component
                     ]);
 
                     ProcessDocumentIngestion::dispatch($document->id);
-                    $queued++;
                 } catch (\Throwable $e) {
                     $failed++;
                     $errors[] = $upload->getClientOriginalName().': '.$e->getMessage();
                 }
             }
 
-            if ($isMultiFile) {
-                $msg = "Upload finished. Queued: {$queued}, failed: {$failed}.";
-                if ($errors !== []) {
-                    $msg .= ' Errors: '.implode(' | ', $errors);
-                }
-                $this->statusMessage = $msg;
-            } else {
-                $this->statusMessage = 'Upload accepted. Document is queued for processing.';
+            $msg = "Upload finished. Queued: {$totalUploads}, failed: {$failed}.";
+            if ($errors !== []) {
+                $msg .= ' Errors: '.implode(' | ', $errors);
             }
+
+            $this->statusMessage = $msg;
 
             $this->upload = null;
             $this->uploads = [];
