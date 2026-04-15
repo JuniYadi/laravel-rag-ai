@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
+    config()->set('app.key', 'base64:'.base64_encode(str_repeat('0', 32)));
+
     if (! is_dir(public_path('build'))) {
         mkdir(public_path('build'), 0755, true);
     }
@@ -128,8 +130,18 @@ test('document uploader accepts multiple files and queues ingestion per file', f
 
     $this->app->instance(DocumentParserService::class, $parserMock);
 
-    Livewire::test(DocumentUploader::class)
-        ->set('uploads', [$firstUpload, $secondUpload])
+    $component = Livewire::test(DocumentUploader::class);
+
+    $component
+        ->set('upload', $firstUpload)
+        ->assertSet('statusMessage', 'Queued 1 file(s). Click Upload to process them one by one.');
+
+    $component
+        ->set('upload', $secondUpload)
+        ->assertSet('statusMessage', 'Queued 2 file(s). Click Upload to process them one by one.');
+
+    $component
+        ->call('processUpload')
         ->assertSet('isProcessing', false)
         ->assertSet('statusMessage', 'Upload finished. Queued: 2, failed: 0.');
 

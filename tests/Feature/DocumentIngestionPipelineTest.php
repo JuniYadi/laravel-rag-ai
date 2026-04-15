@@ -44,7 +44,8 @@ test('upload request dispatches async ingestion job and returns quickly', functi
     $this->app->instance(DocumentParserService::class, $parserMock);
 
     Livewire::test(DocumentUploader::class)
-        ->set('uploads', [$uploadedFile])
+        ->set('upload', $uploadedFile)
+        ->call('processUpload')
         ->assertSet('isProcessing', false)
         ->assertSet('statusMessage', 'Upload finished. Queued: 1, failed: 0.');
 
