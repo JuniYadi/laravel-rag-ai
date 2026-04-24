@@ -13,8 +13,9 @@
                     accept=".pdf,.txt,.md,.markdown"
                     :disabled="$isProcessing"
                 />
-                <flux:error name="upload" />
-                @error('upload')
+                <flux:error name="uploads" />
+                <flux:error name="uploads.*" />
+                @error('uploads.*')
                     <p class="mt-2 text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
                 @enderror
             </flux:field>
