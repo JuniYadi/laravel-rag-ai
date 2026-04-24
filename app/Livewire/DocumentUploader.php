@@ -61,6 +61,11 @@ class DocumentUploader extends Component
 
     public function updatedUploads(): void
     {
+        $this->processUpload();
+    }
+
+    public function processUpload(): void
+    {
         if ($this->isProcessing || empty($this->uploads)) {
             return;
         }
@@ -73,12 +78,16 @@ class DocumentUploader extends Component
         $this->isProcessing = true;
         $this->statusMessage = 'Parsing document(s)...';
 
+        $totalUploads = count($this->uploads);
+        $isMultiFile = $totalUploads > 1;
+        $processed = 0;
         $queued = 0;
         $failed = 0;
         $errors = [];
+
         try {
             while (! empty($this->uploads)) {
-                $queued++;
+                $processed++;
 
                 /** @var object $upload */
                 $upload = array_shift($this->uploads);
@@ -86,7 +95,7 @@ class DocumentUploader extends Component
                 $this->statusMessage = sprintf(
                     'Parsing file %s (%d of %d)...',
                     $upload->getClientOriginalName(),
-                    $queued,
+                    $processed,
                     $totalUploads
                 );
 
@@ -112,16 +121,12 @@ class DocumentUploader extends Component
                 }
             }
 
-            if ($isMultiFile) {
-                $msg = "Upload finished. Queued: {$queued}, failed: {$failed}.";
-                if ($errors !== []) {
-                    $msg .= ' Errors: '.implode(' | ', $errors);
-                }
-                $this->statusMessage = $msg;
-            } else {
-                $this->statusMessage = 'Upload accepted. Document is queued for processing.';
+            $message = "Upload finished. Queued: {$queued}, failed: {$failed}.";
+            if ($errors !== [] && $isMultiFile) {
+                $message .= ' Errors: '.implode(' | ', $errors);
             }
 
+            $this->statusMessage = $message;
             $this->upload = null;
             $this->uploads = [];
             $this->loadDocuments();
