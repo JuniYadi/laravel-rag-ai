@@ -22,28 +22,18 @@ class DocumentParserService
     public function parse(UploadedFile $file): array
     {
         $fileType = strtolower($file->getClientOriginalExtension());
+        $filePath = $file->getRealPath();
         $originalName = $file->getClientOriginalName();
 
-        // Read content via get() which works for both local and S3-stored temp files
-        $rawContent = $file->get();
-
-        // Write to local temp file for parsers that need file path
-        $tempFile = tempnam(sys_get_temp_dir(), 'rag_');
-        file_put_contents($tempFile, $rawContent);
-
-        try {
-            $content = match ($fileType) {
-                'pdf' => $this->parsePdf($tempFile),
-                'txt' => $this->parseTxt($tempFile),
-                'md', 'markdown' => $this->parseMarkdown($tempFile),
-                default => throw new \InvalidArgumentException("Unsupported file type: {$fileType}"),
-            };
-        } finally {
-            @unlink($tempFile);
-        }
+        $content = match ($fileType) {
+            'pdf' => $this->parsePdf($filePath),
+            'txt' => $this->parseTxt($filePath),
+            'md', 'markdown' => $this->parseMarkdown($filePath),
+            default => throw new \InvalidArgumentException("Unsupported file type: {$fileType}"),
+        };
 
         $excerpt = $this->generateExcerpt($content);
-        $storagePath = $this->storeFile($file, $rawContent);
+        $storagePath = $this->storeFile($file);
 
         return [
             'title' => pathinfo($originalName, PATHINFO_FILENAME),
@@ -127,7 +117,7 @@ class DocumentParserService
     /**
      * Store uploaded file to disk
      */
-    protected function storeFile(UploadedFile $file, string $content): string
+    protected function storeFile(UploadedFile $file): string
     {
         $disk = config('services.document.disk', 'local');
         $path = config('services.document.storage_path', 'documents');
@@ -135,7 +125,7 @@ class DocumentParserService
         $filename = Str::uuid().'.'.$file->getClientOriginalExtension();
         $fullPath = $path.'/'.$filename;
 
-        Storage::disk($disk)->put($fullPath, $content);
+        Storage::disk($disk)->put($fullPath, file_get_contents($file->getRealPath()));
 
         return $fullPath;
     }
